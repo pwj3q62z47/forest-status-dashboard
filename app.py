@@ -1,0 +1,151 @@
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+from flask import Flask, jsonify, request
+
+
+APP = Flask(__name__)
+DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
+STATE_FILE = DATA_DIR / "forest_public_status.json"
+UPLOAD_TOKEN = os.environ.get("UPLOAD_TOKEN", "")
+
+
+def default_state():
+    return {
+        "created_at": None,
+        "received_at": None,
+        "count": 0,
+        "reservations": 0,
+        "waits": 0,
+        "rows": [],
+    }
+
+
+def load_state():
+    if not STATE_FILE.exists():
+        return default_state()
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return default_state()
+
+
+def save_state(data):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def authorized():
+    if not UPLOAD_TOKEN:
+        return False
+    return request.headers.get("X-Upload-Token", "") == UPLOAD_TOKEN
+
+
+@APP.get("/api/status")
+def api_status():
+    return jsonify(load_state())
+
+
+@APP.post("/api/upload")
+def api_upload():
+    if not authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    data = request.get_json(force=True, silent=True) or {}
+    rows = data.get("rows") or []
+    safe_rows = []
+    for row in rows:
+        safe_rows.append(
+            {
+                "kind": row.get("kind", ""),
+                "status": row.get("status", ""),
+                "period": row.get("period", ""),
+                "dday": row.get("dday", ""),
+                "forest": row.get("forest", ""),
+                "room": row.get("room", ""),
+                "amount": row.get("amount", ""),
+                "note": row.get("note", ""),
+            }
+        )
+    payload = {
+        "created_at": data.get("created_at"),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(safe_rows),
+        "reservations": sum(1 for row in safe_rows if row.get("kind") == "예약"),
+        "waits": sum(1 for row in safe_rows if row.get("kind") == "대기"),
+        "rows": safe_rows,
+    }
+    save_state(payload)
+    return jsonify({"ok": True, "count": len(safe_rows)})
+
+
+@APP.get("/")
+def index():
+    return """<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>자연휴양림 예약/대기 현황</title>
+  <style>
+    body{margin:0;font-family:Malgun Gothic,Segoe UI,Arial,sans-serif;background:#f5f7f9;color:#172033}
+    header{background:#14532d;color:#fff;padding:16px 22px}
+    main{max-width:1280px;margin:0 auto;padding:16px}
+    h1{font-size:21px;margin:0 0 5px} h2{font-size:17px;margin:18px 0 10px}
+    .muted{color:#64748b;font-size:13px}.header-muted{color:#d9f99d;font-size:13px}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+    .card{background:#fff;border:1px solid #d9e0e8;border-radius:8px;padding:12px}
+    .metric strong{display:block;font-size:25px;margin-top:5px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+    button{border:1px solid #15803d;background:#fff;color:#166534;border-radius:6px;padding:8px 12px;font-weight:700;cursor:pointer}
+    table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d9e0e8;font-size:13px}
+    th,td{border-bottom:1px solid #e6ebf0;padding:7px 8px;text-align:left;vertical-align:top}
+    th{background:#edf2f7;position:sticky;top:0;z-index:1}.table-wrap{max-height:480px;overflow:auto;border-radius:8px}
+    .wait1 td{background:#fff7ed}.urgent td{border-left:4px solid #dc2626}
+    .tab{display:none}.tab.active{display:block}
+    details{background:#fff;border:1px solid #d9e0e8;border-radius:8px;margin:8px 0}
+    summary{padding:10px 12px;cursor:pointer;font-weight:700}
+    details table{border-left:0;border-right:0;border-bottom:0}
+    @media(max-width:760px){.grid{grid-template-columns:1fr}.table-wrap{max-height:none} th,td{font-size:12px;padding:6px}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>자연휴양림 예약/대기 현황</h1>
+    <div id="subtitle" class="header-muted">불러오는 중...</div>
+  </header>
+  <main>
+    <section class="grid">
+      <div class="card metric"><span class="muted">예약</span><strong id="reserveCount">0</strong></div>
+      <div class="card metric"><span class="muted">대기</span><strong id="waitCount">0</strong></div>
+      <div class="card metric"><span class="muted">전체</span><strong id="totalCount">0</strong></div>
+    </section>
+    <div class="tabs">
+      <button onclick="showTab('reservations')">예약현황</button>
+      <button onclick="showTab('waits')">대기현황</button>
+      <button onclick="showTab('dates')">날짜별 정리</button>
+    </div>
+    <section id="reservations" class="tab active card"><h2>예약현황</h2><div class="table-wrap" id="reservationTable"></div></section>
+    <section id="waits" class="tab card"><h2>대기현황</h2><div class="table-wrap" id="waitTable"></div></section>
+    <section id="dates" class="tab card"><h2>날짜별 정리</h2><div id="dateGroups"></div></section>
+  </main>
+<script>
+function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[m]));}
+function parseStart(period){const m=String(period||"").match(/\\d{4}-\\d{2}-\\d{2}/);return m?new Date(m[0]+"T00:00:00"):new Date("9999-12-31");}
+function sortRows(rows){return [...rows].sort((a,b)=>parseStart(a.period)-parseStart(b.period)||String(a.forest).localeCompare(String(b.forest),"ko"));}
+function rowClass(r){const cls=[];if(r.kind==="대기"&&r.status==="대기1순위")cls.push("wait1");if(["오늘","D-1","D-2","D-3"].includes(r.dday))cls.push("urgent");return cls.join(" ");}
+function table(rows){if(!rows.length)return '<p class="muted">데이터 없음</p>';const head=["상태","이용기간","D-Day","휴양림","객실","금액","비고"].map(c=>`<th>${c}</th>`).join("");const body=sortRows(rows).map(r=>`<tr class="${rowClass(r)}"><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.period)}</td><td>${escapeHtml(r.dday)}</td><td>${escapeHtml(r.forest)}</td><td>${escapeHtml(r.room)}</td><td>${escapeHtml(r.amount)}</td><td>${escapeHtml(r.note)}</td></tr>`).join("");return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;}
+function groupBy(rows,keyFn){return rows.reduce((m,r)=>{const k=keyFn(r)||"미확인";(m[k] ||= []).push(r);return m;},{});}
+function dateGroups(rows){const g=groupBy(rows,r=>r.period);return Object.keys(g).sort((a,b)=>parseStart(a)-parseStart(b)).map(k=>{const rs=g[k].filter(r=>r.kind==="예약");const ws=g[k].filter(r=>r.kind==="대기");return `<details><summary>${escapeHtml(k)} <span class="muted">${escapeHtml((g[k][0]||{}).dday||"")} / 예약 ${rs.length} / 대기 ${ws.length}</span></summary><h2>예약</h2>${table(rs)}<h2>대기</h2>${table(ws)}</details>`}).join("")||'<p class="muted">데이터 없음</p>';}
+function showTab(id){document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));document.getElementById(id).classList.add("active");}
+async function loadData(){const data=await fetch("/api/status").then(r=>r.json());const rows=data.rows||[];const rs=rows.filter(r=>r.kind==="예약");const ws=rows.filter(r=>r.kind==="대기");document.getElementById("subtitle").textContent=`최근 갱신: ${data.created_at||"-"}`;document.getElementById("reserveCount").textContent=rs.length;document.getElementById("waitCount").textContent=ws.length;document.getElementById("totalCount").textContent=rows.length;document.getElementById("reservationTable").innerHTML=table(rs);document.getElementById("waitTable").innerHTML=table(ws);document.getElementById("dateGroups").innerHTML=dateGroups(rows);}
+setInterval(loadData,10000);loadData();
+</script>
+</body>
+</html>"""
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8787"))
+    APP.run(host="0.0.0.0", port=port)
