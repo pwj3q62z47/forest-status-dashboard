@@ -10,6 +10,7 @@ APP = Flask(__name__)
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 STATE_FILE = DATA_DIR / "forest_public_status.json"
 UPLOAD_TOKEN = os.environ.get("UPLOAD_TOKEN", "")
+VIEW_TOKEN = os.environ.get("VIEW_TOKEN", "")
 
 
 def default_state():
@@ -43,8 +44,17 @@ def authorized():
     return request.headers.get("X-Upload-Token", "") == UPLOAD_TOKEN
 
 
+def can_view():
+    if not VIEW_TOKEN:
+        return True
+    token = request.args.get("token", "")
+    return token == VIEW_TOKEN
+
+
 @APP.get("/api/status")
 def api_status():
+    if not can_view():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
     return jsonify(load_state())
 
 
@@ -82,6 +92,18 @@ def api_upload():
 
 @APP.get("/")
 def index():
+    if not can_view():
+        return """<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>접근 제한</title><style>
+body{font-family:Malgun Gothic,Segoe UI,Arial,sans-serif;background:#f5f7f9;color:#172033;margin:0}
+main{max-width:520px;margin:80px auto;background:#fff;border:1px solid #d9e0e8;border-radius:8px;padding:22px}
+h1{font-size:22px;margin:0 0 10px} p{color:#64748b;line-height:1.6}
+</style></head><body><main>
+<h1>접근 제한</h1>
+<p>현황을 보려면 올바른 보기 비밀번호가 필요합니다.</p>
+<p>주소 뒤에 <b>?token=보기비밀번호</b>를 붙여 접속하세요.</p>
+</main></body></html>""", 401
     return """<!doctype html>
 <html lang="ko">
 <head>
@@ -139,7 +161,7 @@ function table(rows){if(!rows.length)return '<p class="muted">데이터 없음</
 function groupBy(rows,keyFn){return rows.reduce((m,r)=>{const k=keyFn(r)||"미확인";(m[k] ||= []).push(r);return m;},{});}
 function dateGroups(rows){const g=groupBy(rows,r=>r.period);return Object.keys(g).sort((a,b)=>parseStart(a)-parseStart(b)).map(k=>{const rs=g[k].filter(r=>r.kind==="예약");const ws=g[k].filter(r=>r.kind==="대기");return `<details><summary>${escapeHtml(k)} <span class="muted">${escapeHtml((g[k][0]||{}).dday||"")} / 예약 ${rs.length} / 대기 ${ws.length}</span></summary><h2>예약</h2>${table(rs)}<h2>대기</h2>${table(ws)}</details>`}).join("")||'<p class="muted">데이터 없음</p>';}
 function showTab(id){document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));document.getElementById(id).classList.add("active");}
-async function loadData(){const data=await fetch("/api/status").then(r=>r.json());const rows=data.rows||[];const rs=rows.filter(r=>r.kind==="예약");const ws=rows.filter(r=>r.kind==="대기");document.getElementById("subtitle").textContent=`최근 갱신: ${data.created_at||"-"}`;document.getElementById("reserveCount").textContent=rs.length;document.getElementById("waitCount").textContent=ws.length;document.getElementById("totalCount").textContent=rows.length;document.getElementById("reservationTable").innerHTML=table(rs);document.getElementById("waitTable").innerHTML=table(ws);document.getElementById("dateGroups").innerHTML=dateGroups(rows);}
+async function loadData(){const data=await fetch("/api/status"+window.location.search).then(r=>r.json());const rows=data.rows||[];const rs=rows.filter(r=>r.kind==="예약");const ws=rows.filter(r=>r.kind==="대기");document.getElementById("subtitle").textContent=`최근 갱신: ${data.created_at||"-"}`;document.getElementById("reserveCount").textContent=rs.length;document.getElementById("waitCount").textContent=ws.length;document.getElementById("totalCount").textContent=rows.length;document.getElementById("reservationTable").innerHTML=table(rs);document.getElementById("waitTable").innerHTML=table(ws);document.getElementById("dateGroups").innerHTML=dateGroups(rows);}
 setInterval(loadData,10000);loadData();
 </script>
 </body>

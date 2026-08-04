@@ -9,10 +9,11 @@
 - Start Command: `python app.py`
 - Environment Variable:
   - `UPLOAD_TOKEN`: 임의의 긴 문자열
+  - `VIEW_TOKEN`: 현황 화면 보기용 비밀번호
 
 배포 후 공개 주소 예:
 
-`https://forest-status-dashboard.onrender.com`
+`https://forest-status-dashboard.onrender.com?token=VIEW_TOKEN값`
 
 ## 로컬 PC 업로드 설정
 
