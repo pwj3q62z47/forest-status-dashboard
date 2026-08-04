@@ -68,6 +68,7 @@ def api_upload():
     for row in rows:
         safe_rows.append(
             {
+                "account_name": row.get("account_name", ""),
                 "kind": row.get("kind", ""),
                 "status": row.get("status", ""),
                 "period": row.get("period", ""),
@@ -146,22 +147,25 @@ h1{font-size:22px;margin:0 0 10px} p{color:#64748b;line-height:1.6}
     <div class="tabs">
       <button onclick="showTab('reservations')">예약현황</button>
       <button onclick="showTab('waits')">대기현황</button>
+      <button onclick="showTab('accounts')">계정별 정리</button>
       <button onclick="showTab('dates')">날짜별 정리</button>
     </div>
     <section id="reservations" class="tab active card"><h2>예약현황</h2><div class="table-wrap" id="reservationTable"></div></section>
     <section id="waits" class="tab card"><h2>대기현황</h2><div class="table-wrap" id="waitTable"></div></section>
+    <section id="accounts" class="tab card"><h2>계정별 정리</h2><div id="accountGroups"></div></section>
     <section id="dates" class="tab card"><h2>날짜별 정리</h2><div id="dateGroups"></div></section>
   </main>
 <script>
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[m]));}
 function parseStart(period){const m=String(period||"").match(/\\d{4}-\\d{2}-\\d{2}/);return m?new Date(m[0]+"T00:00:00"):new Date("9999-12-31");}
-function sortRows(rows){return [...rows].sort((a,b)=>parseStart(a.period)-parseStart(b.period)||String(a.forest).localeCompare(String(b.forest),"ko"));}
+function sortRows(rows){return [...rows].sort((a,b)=>parseStart(a.period)-parseStart(b.period)||String(a.account_name).localeCompare(String(b.account_name),"ko")||String(a.forest).localeCompare(String(b.forest),"ko"));}
 function rowClass(r){const cls=[];if(r.kind==="대기"&&r.status==="대기1순위")cls.push("wait1");if(["오늘","D-1","D-2","D-3"].includes(r.dday))cls.push("urgent");return cls.join(" ");}
-function table(rows){if(!rows.length)return '<p class="muted">데이터 없음</p>';const head=["상태","이용기간","D-Day","휴양림","객실","금액","비고"].map(c=>`<th>${c}</th>`).join("");const body=sortRows(rows).map(r=>`<tr class="${rowClass(r)}"><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.period)}</td><td>${escapeHtml(r.dday)}</td><td>${escapeHtml(r.forest)}</td><td>${escapeHtml(r.room)}</td><td>${escapeHtml(r.amount)}</td><td>${escapeHtml(r.note)}</td></tr>`).join("");return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;}
+function table(rows, showAccount=true){if(!rows.length)return '<p class="muted">데이터 없음</p>';const labels=showAccount?["상태","이용기간","D-Day","계정","휴양림","객실","금액","비고"]:["상태","이용기간","D-Day","휴양림","객실","금액","비고"];const head=labels.map(c=>`<th>${c}</th>`).join("");const body=sortRows(rows).map(r=>{const account=showAccount?`<td>${escapeHtml(r.account_name)}</td>`:"";return `<tr class="${rowClass(r)}"><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.period)}</td><td>${escapeHtml(r.dday)}</td>${account}<td>${escapeHtml(r.forest)}</td><td>${escapeHtml(r.room)}</td><td>${escapeHtml(r.amount)}</td><td>${escapeHtml(r.note)}</td></tr>`}).join("");return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;}
 function groupBy(rows,keyFn){return rows.reduce((m,r)=>{const k=keyFn(r)||"미확인";(m[k] ||= []).push(r);return m;},{});}
+function accountGroups(rows){const g=groupBy(rows,r=>r.account_name);return Object.keys(g).sort((a,b)=>a.localeCompare(b,"ko")).map(k=>{const rs=g[k].filter(r=>r.kind==="예약");const ws=g[k].filter(r=>r.kind==="대기");return `<details><summary>${escapeHtml(k)} <span class="muted">예약 ${rs.length} / 대기 ${ws.length}/3 / 남음 ${Math.max(0,3-ws.length)}</span></summary><h2>예약</h2>${table(rs,false)}<h2>대기</h2>${table(ws,false)}</details>`}).join("")||'<p class="muted">데이터 없음</p>';}
 function dateGroups(rows){const g=groupBy(rows,r=>r.period);return Object.keys(g).sort((a,b)=>parseStart(a)-parseStart(b)).map(k=>{const rs=g[k].filter(r=>r.kind==="예약");const ws=g[k].filter(r=>r.kind==="대기");return `<details><summary>${escapeHtml(k)} <span class="muted">${escapeHtml((g[k][0]||{}).dday||"")} / 예약 ${rs.length} / 대기 ${ws.length}</span></summary><h2>예약</h2>${table(rs)}<h2>대기</h2>${table(ws)}</details>`}).join("")||'<p class="muted">데이터 없음</p>';}
 function showTab(id){document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));document.getElementById(id).classList.add("active");}
-async function loadData(){const data=await fetch("/api/status"+window.location.search).then(r=>r.json());const rows=data.rows||[];const rs=rows.filter(r=>r.kind==="예약");const ws=rows.filter(r=>r.kind==="대기");document.getElementById("subtitle").textContent=`최근 갱신: ${data.created_at||"-"}`;document.getElementById("reserveCount").textContent=rs.length;document.getElementById("waitCount").textContent=ws.length;document.getElementById("totalCount").textContent=rows.length;document.getElementById("reservationTable").innerHTML=table(rs);document.getElementById("waitTable").innerHTML=table(ws);document.getElementById("dateGroups").innerHTML=dateGroups(rows);}
+async function loadData(){const data=await fetch("/api/status"+window.location.search).then(r=>r.json());const rows=data.rows||[];const rs=rows.filter(r=>r.kind==="예약");const ws=rows.filter(r=>r.kind==="대기");document.getElementById("subtitle").textContent=`최근 갱신: ${data.created_at||"-"}`;document.getElementById("reserveCount").textContent=rs.length;document.getElementById("waitCount").textContent=ws.length;document.getElementById("totalCount").textContent=rows.length;document.getElementById("reservationTable").innerHTML=table(rs);document.getElementById("waitTable").innerHTML=table(ws);document.getElementById("accountGroups").innerHTML=accountGroups(rows);document.getElementById("dateGroups").innerHTML=dateGroups(rows);}
 setInterval(loadData,10000);loadData();
 </script>
 </body>
