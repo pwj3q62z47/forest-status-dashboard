@@ -1,7 +1,9 @@
 import json
 import os
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib import error, request
 
 from flask import Flask, jsonify, request
 
@@ -11,6 +13,10 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 STATE_FILE = DATA_DIR / "forest_public_status.json"
 UPLOAD_TOKEN = os.environ.get("UPLOAD_TOKEN", "")
 VIEW_TOKEN = os.environ.get("VIEW_TOKEN", "")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "").strip()
+GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main").strip()
+GITHUB_STATE_PATH = os.environ.get("GITHUB_STATE_PATH", "forest_public_status.json").strip()
 
 
 def default_state():
@@ -24,18 +30,93 @@ def default_state():
     }
 
 
+def github_enabled():
+    return bool(GITHUB_TOKEN and GITHUB_REPO and GITHUB_STATE_PATH)
+
+
+def github_api_url():
+    path = GITHUB_STATE_PATH.lstrip("/")
+    return f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+
+
+def github_headers():
+    return {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "forest-status-dashboard",
+    }
+
+
+def load_github_state():
+    if not github_enabled():
+        return None
+    url = f"{github_api_url()}?ref={GITHUB_BRANCH}"
+    req = request.Request(url, headers=github_headers(), method="GET")
+    try:
+        with request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        encoded = payload.get("content", "")
+        raw = base64.b64decode(encoded).decode("utf-8")
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def get_github_file_sha():
+    if not github_enabled():
+        return None
+    url = f"{github_api_url()}?ref={GITHUB_BRANCH}"
+    req = request.Request(url, headers=github_headers(), method="GET")
+    try:
+        with request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        return payload.get("sha")
+    except error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise
+
+
+def save_github_state(data):
+    if not github_enabled():
+        return False
+    body = {
+        "message": "Update forest public status",
+        "content": base64.b64encode(
+            json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        ).decode("ascii"),
+        "branch": GITHUB_BRANCH,
+    }
+    sha = get_github_file_sha()
+    if sha:
+        body["sha"] = sha
+    req = request.Request(
+        github_api_url(),
+        data=json.dumps(body).encode("utf-8"),
+        headers={**github_headers(), "Content-Type": "application/json"},
+        method="PUT",
+    )
+    try:
+        with request.urlopen(req, timeout=15):
+            return True
+    except Exception:
+        return False
+
+
 def load_state():
     if not STATE_FILE.exists():
-        return default_state()
+        return load_github_state() or default_state()
     try:
         return json.loads(STATE_FILE.read_text(encoding="utf-8"))
     except Exception:
-        return default_state()
+        return load_github_state() or default_state()
 
 
 def save_state(data):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_github_state(data)
 
 
 def authorized():

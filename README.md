@@ -10,6 +10,13 @@
 - Environment Variable:
   - `UPLOAD_TOKEN`: 임의의 긴 문자열
   - `VIEW_TOKEN`: 현황 화면 보기용 비밀번호
+  - `GITHUB_TOKEN`: GitHub 파일 저장용 토큰, 선택
+  - `GITHUB_REPO`: JSON을 저장할 저장소, 예: `pwj3q62z47/forest-status-data`
+  - `GITHUB_BRANCH`: 보통 `main`
+  - `GITHUB_STATE_PATH`: 저장할 파일명, 예: `forest_public_status.json`
+
+`GITHUB_*` 값을 넣으면 Render가 재시작되어도 GitHub에 저장된 최신 JSON을 다시 읽습니다.
+공개 저장소에 저장하면 예약 현황이 노출될 수 있으니 가능하면 private 저장소를 사용하세요.
 
 배포 후 공개 주소 예:
 
