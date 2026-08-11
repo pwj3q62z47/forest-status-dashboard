@@ -3,9 +3,9 @@ import os
 import base64
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib import error, request
+from urllib import error, request as urlrequest
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request as flask_request
 
 
 APP = Flask(__name__)
@@ -52,9 +52,9 @@ def load_github_state():
     if not github_enabled():
         return None
     url = f"{github_api_url()}?ref={GITHUB_BRANCH}"
-    req = request.Request(url, headers=github_headers(), method="GET")
+    req = urlrequest.Request(url, headers=github_headers(), method="GET")
     try:
-        with request.urlopen(req, timeout=10) as resp:
+        with urlrequest.urlopen(req, timeout=10) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         encoded = payload.get("content", "")
         raw = base64.b64decode(encoded).decode("utf-8")
@@ -67,9 +67,9 @@ def get_github_file_sha():
     if not github_enabled():
         return None
     url = f"{github_api_url()}?ref={GITHUB_BRANCH}"
-    req = request.Request(url, headers=github_headers(), method="GET")
+    req = urlrequest.Request(url, headers=github_headers(), method="GET")
     try:
-        with request.urlopen(req, timeout=10) as resp:
+        with urlrequest.urlopen(req, timeout=10) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         return payload.get("sha")
     except error.HTTPError as exc:
@@ -91,14 +91,14 @@ def save_github_state(data):
     sha = get_github_file_sha()
     if sha:
         body["sha"] = sha
-    req = request.Request(
+    req = urlrequest.Request(
         github_api_url(),
         data=json.dumps(body).encode("utf-8"),
         headers={**github_headers(), "Content-Type": "application/json"},
         method="PUT",
     )
     try:
-        with request.urlopen(req, timeout=15):
+        with urlrequest.urlopen(req, timeout=15):
             return True
     except Exception:
         return False
@@ -122,13 +122,13 @@ def save_state(data):
 def authorized():
     if not UPLOAD_TOKEN:
         return False
-    return request.headers.get("X-Upload-Token", "") == UPLOAD_TOKEN
+    return flask_request.headers.get("X-Upload-Token", "") == UPLOAD_TOKEN
 
 
 def can_view():
     if not VIEW_TOKEN:
         return True
-    token = request.args.get("token", "")
+    token = flask_request.args.get("token", "")
     return token == VIEW_TOKEN
 
 
@@ -136,14 +136,19 @@ def can_view():
 def api_status():
     if not can_view():
         return jsonify({"ok": False, "error": "unauthorized"}), 401
-    return jsonify(load_state())
+    try:
+        return jsonify(load_state())
+    except Exception as exc:
+        fallback = default_state()
+        fallback["error"] = str(exc)
+        return jsonify(fallback), 200
 
 
 @APP.post("/api/upload")
 def api_upload():
     if not authorized():
         return jsonify({"ok": False, "error": "unauthorized"}), 401
-    data = request.get_json(force=True, silent=True) or {}
+    data = flask_request.get_json(force=True, silent=True) or {}
     rows = data.get("rows") or []
     safe_rows = []
     for row in rows:
