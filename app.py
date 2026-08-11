@@ -154,6 +154,7 @@ def api_upload():
                 "status": row.get("status", ""),
                 "period": row.get("period", ""),
                 "dday": row.get("dday", ""),
+                "source": row.get("source", ""),
                 "forest": row.get("forest", ""),
                 "room": row.get("room", ""),
                 "amount": row.get("amount", ""),
@@ -191,7 +192,7 @@ h1{font-size:22px;margin:0 0 10px} p{color:#64748b;line-height:1.6}
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>자연휴양림 예약/대기 현황</title>
+  <title>예약/대기 현황</title>
   <style>
     body{margin:0;font-family:Malgun Gothic,Segoe UI,Arial,sans-serif;background:#f5f7f9;color:#172033}
     header{background:#14532d;color:#fff;padding:16px 22px}
@@ -216,7 +217,7 @@ h1{font-size:22px;margin:0 0 10px} p{color:#64748b;line-height:1.6}
 </head>
 <body>
   <header>
-    <h1>자연휴양림 예약/대기 현황</h1>
+    <h1>예약/대기 현황</h1>
     <div id="subtitle" class="header-muted">불러오는 중...</div>
   </header>
   <main>
@@ -241,7 +242,7 @@ function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;",
 function parseStart(period){const m=String(period||"").match(/\\d{4}-\\d{2}-\\d{2}/);return m?new Date(m[0]+"T00:00:00"):new Date("9999-12-31");}
 function sortRows(rows){return [...rows].sort((a,b)=>parseStart(a.period)-parseStart(b.period)||String(a.account_name).localeCompare(String(b.account_name),"ko")||String(a.forest).localeCompare(String(b.forest),"ko"));}
 function rowClass(r){const cls=[];if(r.kind==="대기"&&r.status==="대기1순위")cls.push("wait1");if(["오늘","D-1","D-2","D-3"].includes(r.dday))cls.push("urgent");return cls.join(" ");}
-function table(rows, showAccount=true){if(!rows.length)return '<p class="muted">데이터 없음</p>';const labels=showAccount?["상태","이용기간","D-Day","계정","휴양림","객실","금액","비고"]:["상태","이용기간","D-Day","휴양림","객실","금액","비고"];const head=labels.map(c=>`<th>${c}</th>`).join("");const body=sortRows(rows).map(r=>{const account=showAccount?`<td>${escapeHtml(r.account_name)}</td>`:"";return `<tr class="${rowClass(r)}"><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.period)}</td><td>${escapeHtml(r.dday)}</td>${account}<td>${escapeHtml(r.forest)}</td><td>${escapeHtml(r.room)}</td><td>${escapeHtml(r.amount)}</td><td>${escapeHtml(r.note)}</td></tr>`}).join("");return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;}
+function table(rows, showAccount=true){if(!rows.length)return '<p class="muted">데이터 없음</p>';const labels=showAccount?["상태","이용기간","D-Day","계정","출처","시설","객실","금액","비고"]:["상태","이용기간","D-Day","출처","시설","객실","금액","비고"];const head=labels.map(c=>`<th>${c}</th>`).join("");const body=sortRows(rows).map(r=>{const account=showAccount?`<td>${escapeHtml(r.account_name)}</td>`:"";return `<tr class="${rowClass(r)}"><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.period)}</td><td>${escapeHtml(r.dday)}</td>${account}<td>${escapeHtml(r.source)}</td><td>${escapeHtml(r.forest)}</td><td>${escapeHtml(r.room)}</td><td>${escapeHtml(r.amount)}</td><td>${escapeHtml(r.note)}</td></tr>`}).join("");return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;}
 function groupBy(rows,keyFn){return rows.reduce((m,r)=>{const k=keyFn(r)||"미확인";(m[k] ||= []).push(r);return m;},{});}
 function accountGroups(rows){const g=groupBy(rows,r=>r.account_name);return Object.keys(g).sort((a,b)=>a.localeCompare(b,"ko")).map(k=>{const rs=g[k].filter(r=>r.kind==="예약");const ws=g[k].filter(r=>r.kind==="대기");return `<details><summary>${escapeHtml(k)} <span class="muted">예약 ${rs.length} / 대기 ${ws.length}/3 / 남음 ${Math.max(0,3-ws.length)}</span></summary><h2>예약</h2>${table(rs,false)}<h2>대기</h2>${table(ws,false)}</details>`}).join("")||'<p class="muted">데이터 없음</p>';}
 function dateGroups(rows){const g=groupBy(rows,r=>r.period);return Object.keys(g).sort((a,b)=>parseStart(a)-parseStart(b)).map(k=>{const rs=g[k].filter(r=>r.kind==="예약");const ws=g[k].filter(r=>r.kind==="대기");return `<details><summary>${escapeHtml(k)} <span class="muted">${escapeHtml((g[k][0]||{}).dday||"")} / 예약 ${rs.length} / 대기 ${ws.length}</span></summary><h2>예약</h2>${table(rs)}<h2>대기</h2>${table(ws)}</details>`}).join("")||'<p class="muted">데이터 없음</p>';}
