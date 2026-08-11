@@ -212,7 +212,14 @@ h1{font-size:22px;margin:0 0 10px} p{color:#64748b;line-height:1.6}
     details{background:#fff;border:1px solid #d9e0e8;border-radius:8px;margin:8px 0}
     summary{padding:10px 12px;cursor:pointer;font-weight:700}
     details table{border-left:0;border-right:0;border-bottom:0}
-    @media(max-width:760px){.grid{grid-template-columns:1fr}.table-wrap{max-height:none} th,td{font-size:12px;padding:6px}}
+    .calendar-month{margin:14px 0 22px}.calendar-month h3{margin:0 0 8px;font-size:17px}
+    .calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border:1px solid #d9e0e8;background:#fff}
+    .calendar-head{background:#edf2f7;font-weight:700;text-align:center;padding:8px 4px;border-right:1px solid #e6ebf0}
+    .calendar-cell{min-height:116px;border-top:1px solid #e6ebf0;border-right:1px solid #e6ebf0;padding:6px;overflow:hidden}
+    .calendar-cell.blank{background:#f8fafc}.calendar-day{font-weight:700;margin-bottom:5px;color:#334155}
+    .calendar-event{border-left:3px solid #15803d;background:#f0fdf4;border-radius:4px;padding:4px 5px;margin:4px 0;font-size:12px;line-height:1.35}
+    .calendar-event.pending{border-left-color:#d97706;background:#fffbeb}.calendar-event strong{display:block}
+    @media(max-width:760px){.grid{grid-template-columns:1fr}.table-wrap{max-height:none} th,td{font-size:12px;padding:6px}.calendar-grid{display:block;border:0}.calendar-head{display:none}.calendar-cell{min-height:auto;border:1px solid #e6ebf0;margin:6px 0;border-radius:6px}.calendar-cell.blank{display:none}}
   </style>
 </head>
 <body>
@@ -228,11 +235,13 @@ h1{font-size:22px;margin:0 0 10px} p{color:#64748b;line-height:1.6}
     </section>
     <div class="tabs">
       <button onclick="showTab('reservations')">예약현황</button>
+      <button onclick="showTab('calendar')">예약 캘린더</button>
       <button onclick="showTab('waits')">대기현황</button>
       <button onclick="showTab('accounts')">계정별 정리</button>
       <button onclick="showTab('dates')">날짜별 정리</button>
     </div>
     <section id="reservations" class="tab active card"><h2>예약현황</h2><div class="table-wrap" id="reservationTable"></div></section>
+    <section id="calendar" class="tab card"><h2>예약 캘린더</h2><div id="reservationCalendar"></div></section>
     <section id="waits" class="tab card"><h2>대기현황</h2><div class="table-wrap" id="waitTable"></div></section>
     <section id="accounts" class="tab card"><h2>계정별 정리</h2><div id="accountGroups"></div></section>
     <section id="dates" class="tab card"><h2>날짜별 정리</h2><div id="dateGroups"></div></section>
@@ -242,12 +251,17 @@ function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;",
 function parseStart(period){const m=String(period||"").match(/\\d{4}-\\d{2}-\\d{2}/);return m?new Date(m[0]+"T00:00:00"):new Date("9999-12-31");}
 function sortRows(rows){return [...rows].sort((a,b)=>parseStart(a.period)-parseStart(b.period)||String(a.account_name).localeCompare(String(b.account_name),"ko")||String(a.forest).localeCompare(String(b.forest),"ko"));}
 function rowClass(r){const cls=[];if(r.kind==="대기"&&r.status==="대기1순위")cls.push("wait1");if(["오늘","D-1","D-2","D-3"].includes(r.dday))cls.push("urgent");return cls.join(" ");}
-function table(rows, showAccount=true){if(!rows.length)return '<p class="muted">데이터 없음</p>';const labels=showAccount?["상태","이용기간","D-Day","계정","출처","시설","객실","금액","비고"]:["상태","이용기간","D-Day","출처","시설","객실","금액","비고"];const head=labels.map(c=>`<th>${c}</th>`).join("");const body=sortRows(rows).map(r=>{const account=showAccount?`<td>${escapeHtml(r.account_name)}</td>`:"";return `<tr class="${rowClass(r)}"><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.period)}</td><td>${escapeHtml(r.dday)}</td>${account}<td>${escapeHtml(r.source)}</td><td>${escapeHtml(r.forest)}</td><td>${escapeHtml(r.room)}</td><td>${escapeHtml(r.amount)}</td><td>${escapeHtml(r.note)}</td></tr>`}).join("");return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;}
+function displaySource(v){return ["결제내역","대기신청내역"].includes(String(v||""))?"숲나들이":v;}
+function table(rows, showAccount=true){if(!rows.length)return '<p class="muted">데이터 없음</p>';const labels=showAccount?["상태","이용기간","D-Day","계정","출처","시설","객실","금액","비고"]:["상태","이용기간","D-Day","출처","시설","객실","금액","비고"];const head=labels.map(c=>`<th>${c}</th>`).join("");const body=sortRows(rows).map(r=>{const account=showAccount?`<td>${escapeHtml(r.account_name)}</td>`:"";return `<tr class="${rowClass(r)}"><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.period)}</td><td>${escapeHtml(r.dday)}</td>${account}<td>${escapeHtml(displaySource(r.source))}</td><td>${escapeHtml(r.forest)}</td><td>${escapeHtml(r.room)}</td><td>${escapeHtml(r.amount)}</td><td>${escapeHtml(r.note)}</td></tr>`}).join("");return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;}
 function groupBy(rows,keyFn){return rows.reduce((m,r)=>{const k=keyFn(r)||"미확인";(m[k] ||= []).push(r);return m;},{});}
 function accountGroups(rows){const g=groupBy(rows,r=>r.account_name);return Object.keys(g).sort((a,b)=>a.localeCompare(b,"ko")).map(k=>{const rs=g[k].filter(r=>r.kind==="예약");const ws=g[k].filter(r=>r.kind==="대기");return `<details><summary>${escapeHtml(k)} <span class="muted">예약 ${rs.length} / 대기 ${ws.length}/3 / 남음 ${Math.max(0,3-ws.length)}</span></summary><h2>예약</h2>${table(rs,false)}<h2>대기</h2>${table(ws,false)}</details>`}).join("")||'<p class="muted">데이터 없음</p>';}
 function dateGroups(rows){const g=groupBy(rows,r=>r.period);return Object.keys(g).sort((a,b)=>parseStart(a)-parseStart(b)).map(k=>{const rs=g[k].filter(r=>r.kind==="예약");const ws=g[k].filter(r=>r.kind==="대기");return `<details><summary>${escapeHtml(k)} <span class="muted">${escapeHtml((g[k][0]||{}).dday||"")} / 예약 ${rs.length} / 대기 ${ws.length}</span></summary><h2>예약</h2>${table(rs)}<h2>대기</h2>${table(ws)}</details>`}).join("")||'<p class="muted">데이터 없음</p>';}
+function startDateText(period){const m=String(period||"").match(/\d{4}-\d{2}-\d{2}/);return m?m[0]:"";}
+function calendarEvent(r){const pending=String(r.status||"").includes("대기");return `<div class="calendar-event ${pending?"pending":""}"><strong>${escapeHtml(r.account_name)} · ${escapeHtml(r.status)}</strong><div>${escapeHtml(r.forest)}</div><div>${escapeHtml(r.room)}</div></div>`;}
+function calendarMonth(rows, year, month){const first=new Date(year,month-1,1);const last=new Date(year,month,0);const monthRows=rows.filter(r=>startDateText(r.period).startsWith(`${year}-${String(month).padStart(2,"0")}-`));const byDay=groupBy(monthRows,r=>Number(startDateText(r.period).slice(8,10)));let cells=["일","월","화","수","목","금","토"].map(d=>`<div class="calendar-head">${d}</div>`);for(let i=0;i<first.getDay();i++)cells.push('<div class="calendar-cell blank"></div>');for(let d=1;d<=last.getDate();d++){const events=sortRows(byDay[d]||[]).map(calendarEvent).join("");cells.push(`<div class="calendar-cell"><div class="calendar-day">${d}</div>${events}</div>`);}return `<div class="calendar-month"><h3>${year}년 ${month}월</h3><div class="calendar-grid">${cells.join("")}</div></div>`;}
+function reservationCalendar(rows){const rs=sortRows(rows.filter(r=>r.kind==="예약"&&startDateText(r.period)));if(!rs.length)return '<p class="muted">예약 데이터 없음</p>';const months=[...new Set(rs.map(r=>startDateText(r.period).slice(0,7)))].sort();return months.map(m=>{const [y,mo]=m.split("-").map(Number);return calendarMonth(rs,y,mo);}).join("");}
 function showTab(id){document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));document.getElementById(id).classList.add("active");}
-async function loadData(){const data=await fetch("/api/status"+window.location.search).then(r=>r.json());const rows=data.rows||[];const rs=rows.filter(r=>r.kind==="예약");const ws=rows.filter(r=>r.kind==="대기");document.getElementById("subtitle").textContent=`최근 갱신: ${data.created_at||"-"}`;document.getElementById("reserveCount").textContent=rs.length;document.getElementById("waitCount").textContent=ws.length;document.getElementById("totalCount").textContent=rows.length;document.getElementById("reservationTable").innerHTML=table(rs);document.getElementById("waitTable").innerHTML=table(ws);document.getElementById("accountGroups").innerHTML=accountGroups(rows);document.getElementById("dateGroups").innerHTML=dateGroups(rows);}
+async function loadData(){const data=await fetch("/api/status"+window.location.search).then(r=>r.json());const rows=data.rows||[];const rs=rows.filter(r=>r.kind==="예약");const ws=rows.filter(r=>r.kind==="대기");document.getElementById("subtitle").textContent=`최근 갱신: ${data.created_at||"-"}`;document.getElementById("reserveCount").textContent=rs.length;document.getElementById("waitCount").textContent=ws.length;document.getElementById("totalCount").textContent=rows.length;document.getElementById("reservationTable").innerHTML=table(rs);document.getElementById("reservationCalendar").innerHTML=reservationCalendar(rows);document.getElementById("waitTable").innerHTML=table(ws);document.getElementById("accountGroups").innerHTML=accountGroups(rows);document.getElementById("dateGroups").innerHTML=dateGroups(rows);}
 setInterval(loadData,10000);loadData();
 </script>
 </body>
